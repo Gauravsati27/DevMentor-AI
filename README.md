@@ -2,7 +2,7 @@
 
 **DevMentor AI** is an intelligent coding companion designed to help developers debug, learn, and build faster. It leverages Google's multimodal Gemini 2.5 models to provide visual code analysis, detailed explanations, and real-time voice-based pair programming.
 
-[**🚀 Try DevMentor AI Live**](https://ai.studio/apps/drive/1Lrpoh-Nqn6SlgsUfT1Q94qFVSobUi_WF)
+[**🚀 Try DevMentor AI Live**](https://ai.studio/apps/drive/1Lrpoh-Nqn6SlgsUfT1Q94qFVSobUi_WF?fullscreenApplet=true)
 
 ## ✨ Features
 
