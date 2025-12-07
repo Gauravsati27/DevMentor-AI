@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Send, ArrowLeft, Loader2, Code2, Bug, BookOpen, Paperclip, X } from 'lucide-react';
+import { Send, ArrowLeft, Loader2, Code2, Bug, BookOpen, Paperclip, X, Image as ImageIcon, FileText, UploadCloud, Copy, Terminal } from 'lucide-react';
 import { generateResponse } from '../services/geminiService';
 import { ChatMessage, ViewState } from '../types';
 
@@ -9,11 +9,20 @@ interface ChatViewProps {
   onBack: () => void;
 }
 
+// Helper to access global Prism
+declare global {
+  interface Window {
+    Prism: any;
+  }
+}
+
 const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -23,6 +32,10 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
 
   useEffect(() => {
     scrollToBottom();
+    // Trigger syntax highlighting on new messages
+    if (window.Prism) {
+      setTimeout(() => window.Prism.highlightAll(), 100);
+    }
   }, [messages]);
 
   // Initial greeting based on mode
@@ -31,13 +44,13 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
     let initialText = '';
     switch(mode) {
       case ViewState.DEBUG:
-        initialText = "Hello! I'm your Debug Assistant. Upload a screenshot of your error or paste the buggy code, and I'll help you find the root cause.";
+        initialText = "Hello! I'm your Debug Assistant. I can help you fix errors and explain why they happened.";
         break;
       case ViewState.EXPLORE:
-        initialText = "I'm the Code Explorer. Upload your files or ask me to help you build a new feature. I can explain complex logic or suggest architectures.";
+        initialText = "I'm the Code Explorer. I can explain complex codebases or help you architect new features.";
         break;
       case ViewState.LEARN:
-        initialText = "Ready to Learn? Tell me what topic you want to master, and I'll create a lesson plan with practice exercises.";
+        initialText = "Ready to Learn? I can create personalized lesson plans and practice exercises for any topic.";
         break;
       default:
         initialText = "Hello! I'm DevMentor AI. How can I help you today?";
@@ -66,14 +79,25 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
         
         INSTRUCTIONS:
         The user will provide error logs, screenshots, or buggy code.
-        You MUST follow this response format strictly:
+        
+        REQUIRED RESPONSE FORMAT:
         
         1. **Root Cause**: What's causing this error? (Be specific)
-        2. **Why It Happened**: Explain the underlying technical issue or concept.
-        3. **Solutions**: Provide 2-3 ways to fix it (e.g., Quick Fix vs. Best Practice).
-        4. **Prevention**: How to avoid this in the future.
-        
-        Format with clear headings and code blocks.`;
+        2. **Why It Happened**: Explain the underlying technical issue.
+        3. **Code Fix Comparison**:
+           Provide a clear comparison. Use the exact headers below:
+           
+           ### 🔴 Buggy Code
+           \`\`\`[language]
+           // Show the specific lines that are wrong
+           \`\`\`
+           
+           ### 🟢 Fixed Code
+           \`\`\`[language]
+           // Show the corrected code
+           \`\`\`
+           
+        4. **Prevention**: How to avoid this in the future.`;
       
       case ViewState.EXPLORE:
         return `${basePersona}
@@ -82,19 +106,17 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
         
         INSTRUCTIONS:
         
-        Scenario A: User asks about existing code.
-        Provide:
-        - Clear explanation with references to specific code sections.
-        - Visual flow description (describe data/logic flow).
-        - Related code patterns used.
-        - Suggestions for improvements.
+        If User asks to BUILD something:
+        1. **Architecture**: High-level approach.
+        2. **Steps**: Implementation breakdown.
+        3. **Code**: Initial scaffold.
+        4. **Decisions**: Why this approach?
         
-        Scenario B: User wants to build a new feature/app.
-        Provide:
-        1. **Architecture/Approach**: Suggest the best way to structure it.
-        2. **Implementation Steps**: Break it down.
-        3. **Initial Code Structure**: Generate the scaffold.
-        4. **Key Decisions**: Explain why you chose this approach.`;
+        If User asks to EXPLAIN code:
+        1. **Overview**: What does it do?
+        2. **Flow**: How data moves.
+        3. **Patterns**: Design patterns used.
+        4. **Improvements**: Suggestions.`;
       
       case ViewState.LEARN:
         return `${basePersona}
@@ -102,25 +124,17 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
         MODE: LEARN & PRACTICE
         
         INSTRUCTIONS:
-        The user wants to learn a topic.
-        
-        Response Structure:
-        1. **Concept Explanation**: Explain clearly with a simple example.
-        2. **Practical Use Case**: Show where this is used in the real world.
-        3. **Practice Exercise**: Generate a specific coding challenge for the user to try now.
-        4. **Hints**: Offer to provide hints if they get stuck.
-        
-        Adapt your explanation to the user's apparent skill level.`;
+        1. **Concept**: Explain clearly with a simple example.
+        2. **Real World**: Where is this used?
+        3. **Practice**: A small challenge for the user.
+        4. **Hints**: Offer help.`;
       
       default:
         return basePersona;
     }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const processFile = async (file: File) => {
     if (file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onloadend = () => {
@@ -128,7 +142,6 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
       };
       reader.readAsDataURL(file);
     } else {
-      // Handle text/code files
       try {
         const text = await file.text();
         const extension = file.name.split('.').pop() || 'txt';
@@ -140,17 +153,47 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
         console.error("Failed to read file", err);
       }
     }
-    // Reset file input
-    e.target.value = '';
   };
 
-  const handleSend = async () => {
-    if ((!input.trim() && !selectedImage) || isLoading) return;
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      await processFile(file);
+      e.target.value = '';
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      await processFile(file);
+    }
+  };
+
+  const handleSend = async (manualInput?: string) => {
+    const textToSend = manualInput || input;
+    if ((!textToSend.trim() && !selectedImage) || isLoading) return;
+
+    // Use a default prompt if user sends only an image
+    const finalInput = textToSend.trim() || (selectedImage ? "Please analyze this image." : "");
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
-      text: input,
+      text: finalInput,
       image: selectedImage || undefined,
       timestamp: new Date()
     };
@@ -229,8 +272,114 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
     }
   };
 
+  const ExampleCard = ({ title, desc, prompt }: { title: string, desc: string, prompt: string }) => (
+    <button 
+      onClick={() => handleSend(prompt)}
+      className="text-left p-4 bg-dev-800 border border-dev-700 rounded-xl hover:border-dev-accent hover:bg-dev-700 transition-all group w-full"
+    >
+      <h4 className="font-semibold text-white mb-1 group-hover:text-dev-accent">{title}</h4>
+      <p className="text-xs text-slate-400">{desc}</p>
+    </button>
+  );
+
+  const renderExamples = () => {
+    if (mode === ViewState.DEBUG) {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 animate-fade-in px-2">
+          <ExampleCard 
+            title="React useEffect Loop"
+            desc="Fix an infinite loop caused by incorrect dependencies"
+            prompt="I have a React useEffect hook that runs infinitely. Here is the code..."
+          />
+          <ExampleCard 
+            title="Analyze Screenshot"
+            desc="Upload an image of a console error or UI bug"
+            prompt="Can you analyze this error screenshot and tell me what's wrong?"
+          />
+          <ExampleCard 
+            title="Python Type Error"
+            desc="Debug a common TypeError in Python data processing"
+            prompt="I'm getting a TypeError: 'NoneType' object is not subscriptable in this function..."
+          />
+          <ExampleCard 
+            title="CSS Layout Issue"
+            desc="Fix a flexbox or grid layout that isn't centering"
+            prompt="My flexbox container isn't centering items vertically. Here's my CSS..."
+          />
+        </div>
+      );
+    }
+    if (mode === ViewState.EXPLORE) {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 animate-fade-in px-2">
+           <ExampleCard 
+            title="Explain this File"
+            desc="Upload a file and get a line-by-line explanation"
+            prompt="Please explain how this code works step by step."
+          />
+          <ExampleCard 
+            title="Build a Todo App"
+            desc="Get architecture and steps for a React Todo App"
+            prompt="I want to build a modern Todo app with React and Tailwind. Help me get started."
+          />
+          <ExampleCard 
+            title="Refactor Legacy Code"
+            desc="Improve code quality and readability"
+            prompt="How can I refactor this function to be cleaner and more efficient?"
+          />
+           <ExampleCard 
+            title="Write Tests"
+            desc="Generate unit tests for a specific function"
+            prompt="Please write Jest unit tests for the following component..."
+          />
+        </div>
+      );
+    }
+    if (mode === ViewState.LEARN) {
+      return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 animate-fade-in px-2">
+          <ExampleCard 
+            title="Learn Rust Basics"
+            desc="Understand ownership and borrowing"
+            prompt="Teach me about ownership and borrowing in Rust with examples."
+          />
+           <ExampleCard 
+            title="Master Async/Await"
+            desc="Deep dive into JavaScript promises"
+            prompt="Explain async/await in JavaScript and give me a practice exercise."
+          />
+          <ExampleCard 
+            title="Design Patterns"
+            desc="Learn the Singleton or Observer pattern"
+            prompt="What is the Observer pattern? Show me a practical use case."
+          />
+           <ExampleCard 
+            title="SQL Joins"
+            desc="Visualize the difference between Inner and Outer joins"
+            prompt="Explain the difference between INNER JOIN and LEFT JOIN with a simple example."
+          />
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
-    <div className="flex flex-col h-full bg-dev-900">
+    <div 
+      className="flex flex-col h-full bg-dev-900 relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag Overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-dev-accent/20 backdrop-blur-sm border-4 border-dev-accent border-dashed m-4 rounded-2xl flex flex-col items-center justify-center text-white animate-fade-in pointer-events-none">
+          <UploadCloud className="w-20 h-20 mb-4 text-dev-accent" />
+          <h3 className="text-2xl font-bold">Drop files here</h3>
+          <p className="text-slate-200">Upload code or images instantly</p>
+        </div>
+      )}
+
       {/* Header */}
       <header className="flex items-center px-4 py-4 border-b border-dev-800 bg-dev-900 sticky top-0 z-10">
         <button onClick={onBack} className="p-2 mr-2 rounded-lg hover:bg-dev-800 text-slate-400 transition-colors">
@@ -249,7 +398,7 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div 
-              className={`max-w-[85%] lg:max-w-[75%] rounded-2xl px-5 py-4 shadow-sm ${
+              className={`max-w-[90%] lg:max-w-[80%] rounded-2xl px-5 py-4 shadow-sm ${
                 msg.role === 'user' 
                   ? 'bg-dev-accent text-white rounded-br-none' 
                   : 'bg-dev-800 text-slate-200 rounded-bl-none border border-dev-700'
@@ -264,12 +413,24 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
                 <ReactMarkdown
                   components={{
                     code({node, inline, className, children, ...props}: any) {
+                      const match = /language-(\w+)/.exec(className || '')
                       return !inline ? (
-                        <div className="bg-dev-900 p-3 rounded-lg border border-dev-700 my-2 overflow-x-auto font-mono text-sm">
-                          <code {...props}>{children}</code>
+                        <div className="relative group my-4">
+                          <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                             <div className="text-xs text-slate-500 uppercase font-mono bg-dev-900 px-2 py-1 rounded border border-dev-700">
+                               {match ? match[1] : 'code'}
+                             </div>
+                          </div>
+                          <div className="rounded-lg overflow-hidden border border-dev-700">
+                             <pre className={`!bg-dev-900 !m-0 !p-4 overflow-x-auto ${className || ''}`}>
+                               <code className={className} {...props}>
+                                 {children}
+                               </code>
+                             </pre>
+                          </div>
                         </div>
                       ) : (
-                        <code className="bg-dev-900 px-1 py-0.5 rounded text-dev-warning font-mono text-xs" {...props}>
+                        <code className="bg-dev-900 px-1.5 py-0.5 rounded text-dev-warning font-mono text-xs border border-dev-700/50" {...props}>
                           {children}
                         </code>
                       )
@@ -282,11 +443,15 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
             </div>
           </div>
         ))}
+
+        {/* Empty State Examples */}
+        {messages.length === 1 && renderExamples()}
+
         {isLoading && (
            <div className="flex justify-start">
              <div className="bg-dev-800 rounded-2xl rounded-bl-none px-5 py-4 border border-dev-700 flex items-center space-x-2">
                <Loader2 className="w-4 h-4 text-dev-accent animate-spin" />
-               <span className="text-xs text-slate-400">Thinking...</span>
+               <span className="text-xs text-slate-400">Analyzing...</span>
              </div>
            </div>
         )}
@@ -298,18 +463,18 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
         <div className="relative max-w-4xl mx-auto">
           {/* Image Preview */}
           {selectedImage && (
-            <div className="absolute bottom-full left-0 mb-2 p-2 bg-dev-800 rounded-lg border border-dev-700 flex items-start shadow-xl">
+            <div className="absolute bottom-full left-0 mb-2 p-2 bg-dev-800 rounded-lg border border-dev-700 flex items-start shadow-xl animate-slide-up">
               <img src={selectedImage} alt="Preview" className="h-20 w-auto rounded" />
               <button 
                 onClick={() => setSelectedImage(null)}
-                className="ml-2 p-1 bg-dev-900 rounded-full hover:bg-dev-700 text-slate-400 hover:text-white"
+                className="ml-2 p-1 bg-dev-900 rounded-full hover:bg-dev-700 text-slate-400 hover:text-white transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
           )}
 
-          <div className="flex items-end bg-dev-800 rounded-xl border border-dev-700 focus-within:ring-2 focus-within:ring-dev-accent focus-within:border-transparent transition-all">
+          <div className="flex items-end bg-dev-800 rounded-xl border border-dev-700 focus-within:ring-2 focus-within:ring-dev-accent focus-within:border-transparent transition-all shadow-lg">
             <button 
               onClick={() => fileInputRef.current?.click()}
               className="p-3 mb-[2px] text-slate-400 hover:text-white transition-colors"
@@ -334,13 +499,13 @@ const ChatView: React.FC<ChatViewProps> = ({ mode, onBack }) => {
                   handleSend();
                 }
               }}
-              placeholder={mode === ViewState.DEBUG ? "Paste error, code, or upload a screenshot..." : "Ask anything or paste code..."}
-              className="w-full bg-transparent text-white pl-2 pr-14 py-3 focus:outline-none resize-none h-14 min-h-[56px] max-h-32 scrollbar-hide"
+              placeholder={mode === ViewState.DEBUG ? "Describe the issue..." : "Ask anything or paste code..."}
+              className="w-full bg-transparent text-white pl-2 pr-14 py-3 focus:outline-none resize-none h-14 min-h-[56px] max-h-32 scrollbar-hide font-sans"
             />
             <button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={(!input.trim() && !selectedImage) || isLoading}
-              className="absolute right-2 bottom-2 p-2 bg-dev-accent rounded-lg text-white hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              className="absolute right-2 bottom-2 p-2 bg-dev-accent rounded-lg text-white hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
             >
               <Send className="w-5 h-5" />
             </button>
