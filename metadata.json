@@ -1,0 +1,7 @@
+{
+  "name": "DevMentor AI",
+  "description": "Your intelligent coding companion for debugging, learning, and pair programming with voice interaction.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
